@@ -1,0 +1,17 @@
+# Ignorar arquivos temporários do sistema
+__pycache__/
+*.py[cod]
+
+# Ignorar arquivos de backup do Blender
+*.blend1
+*.blend2
+*.blend@
+
+# Ignorar a pasta de saída 
+output/*
+!output/.gitkeep
+C:/Users/*/Desktop/fotos_teste
+
+# Ignorar configurações de usuário IDE
+.vscode/
+.idea/
