@@ -21,147 +21,197 @@ COMO USAR:
 4. As imagens serão salvas na pasta configurada em OUTPUT_DIR.
 """
 
-# Altere o caminho para a pasta onde deseja salvar as fotos.
-OUTPUT_DIR = r"C:\Users\Lucas Haboski\Desktop\fotos_teste"
 
-# Prefixo dos arquivos
-FILE_PREFIX = "broca_padrao"
+# CONFIGURAÇÕES DO USUÁRIO (troque a pasta)
+OUTPUT_DIR = r"C:\Users\Lucas Haboski\Desktop\dataset_final_v25"
+FILE_PREFIX = "Ref_Drill_103-418_" # Nome de cada foto
 
-# --- CONFIGURAÇÕES DE CAPTURA ---
-TOTAL_PHOTOS = 60          
+# CONFIGURAÇÕES DE CAPTURA
+TOTAL_PHOTOS = 60           # 1 foto cada 6 graus
 ROTATION_STEP = 360 / TOTAL_PHOTOS
 
-# --- PARÂMETROS DA CÂMERA (Sensor Full Frame 36mm) ---
+# CONFIGURAÇÂO CÂMERA
 RESOLUTION_X = 2224
 RESOLUTION_Y = 2224
-FOCAL_LENGTH = 100.0        # Lente Macro 100mm
+FOCAL_LENGTH = 100.0
 SENSOR_WIDTH = 36.0
-CAM_DISTANCE = 0.24        
-CAM_HEIGHT = -0.0175        
+CAM_DISTANCE = 0.24
+CAM_HEIGHT = -0.0175 
 
-def setup_scene_defaults():
-    """Configura o motor Cycles, Samples e Perfil de Cor AgX."""
-    print("Configurando Motor de Renderização...")
+def setup_scene_final():
+    print("Configurando Motor Cycles (Qualidade Final)...")
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
     
-    # Qualidade Industrial
-    scene.cycles.samples = 256
+    scene.cycles.samples = 512 
     scene.cycles.use_adaptive_sampling = True
     scene.render.resolution_x = RESOLUTION_X
     scene.render.resolution_y = RESOLUTION_Y
     
-    # Denoising + Contraste
     try:
+        
         scene.view_settings.view_transform = 'AgX'
-        scene.view_settings.look = 'AgX - High Contrast'
+        scene.view_settings.look = 'AgX - High Contrast' 
+        
         scene.cycles.use_denoising = True
         scene.cycles.denoiser = 'OPENIMAGEDENOISE'
         scene.cycles.device = 'GPU'
-    except Exception as e:
-        print(f"Aviso de Configuração: {e}")
+        
+        
+        scene.world.use_nodes = True
+        bg = scene.world.node_tree.nodes.get('Background')
+        if bg: bg.inputs[0].default_value = (0, 0, 0, 1) 
+    except: pass
 
-def setup_lighting_ring_square():
+def setup_material_v25_steel(obj):
+    """ 
+    Material V25: Aço Escuro (0.02) com Roughness 0.30.
+    Equilíbrio ideal entre corpo escuro e bordas brilhantes.
     """
-    Simula um Ring Light Quadrado acoplado à lente da câmera.
-    Cria 4 Area Lights (Retangulares) ao redor do eixo de visão.
+    mat_name = "Steel_Final_Master_V25"
+    if mat_name in bpy.data.materials:
+        mat = bpy.data.materials[mat_name]
+    else:
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+    
+    nodes = mat.node_tree.nodes
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Metallic"].default_value = 1.0
+        bsdf.inputs["Roughness"].default_value = 0.30 
+        # Cor Base: Quase preto (0.02)
+        bsdf.inputs["Base Color"].default_value = (0.02, 0.02, 0.02, 1.0)
+    
+    if obj.data.materials: obj.data.materials[0] = mat
+    else: obj.data.materials.append(mat)
+
+def create_blister_final():
+    """ 
+    Fundo: Plástico Cinza Claro com Textura.
+    TRUQUE: Invisível para reflexo da broca.
     """
-    # Remove luzes antigas
+    if "Blister_Plane" in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects["Blister_Plane"], do_unlink=True)
+
+    bpy.ops.mesh.primitive_plane_add(size=0.5, enter_editmode=False, align='WORLD')
+    plane = bpy.context.active_object
+    plane.name = "Blister_Plane"
+    plane.location = (0, 0.02, 0) 
+    plane.rotation_euler = (math.radians(90), 0, 0)
+
+    plane.visible_glossy = False 
+
+    mat = bpy.data.materials.new(name="Plastic_Blister_Final")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+
+    if bsdf:
+        # Cor Base: 0.6 (Cinza claro)
+        bsdf.inputs["Base Color"].default_value = (0.6, 0.6, 0.6, 1.0) 
+        bsdf.inputs["Roughness"].default_value = 0.5
+        bsdf.inputs["Metallic"].default_value = 0.0
+        
+        # Textura Procedural
+        noise = nodes.new(type="ShaderNodeTexNoise")
+        noise.inputs["Scale"].default_value = 150.0 
+        noise.inputs["Detail"].default_value = 2.0
+        bump = nodes.new(type="ShaderNodeBump")
+        bump.inputs["Strength"].default_value = 0.05 
+        
+        links.new(noise.outputs["Fac"], bump.inputs["Height"])
+        links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    
+    plane.data.materials.append(mat)
+
+def setup_lighting_final_v25():
+    """ 
+    Iluminação V25: Spread 160 para as bordas.
+    Energia: 15 Watts.
+    """
     for obj in bpy.data.objects:
         if "Luz_" in obj.name:
             bpy.data.objects.remove(obj, do_unlink=True)
 
-    # Configuração do Ring Light
-    light_y_pos = -CAM_DISTANCE + 0.01 
+    light_y_pos = -CAM_DISTANCE + 0.02 
+    energy_per_bar = 15.0 
     
-    energy_per_bar = 150.0  # Total 600W de luz distribuída
-    
-    # Dimensões das barras de luz
-    bar_len = 0.10
-    bar_wid = 0.02
-    offset = 0.06   # Distância do centro da lente
-
-    # Definição das 4 luzes: (Nome, Posição X, Posição Z, Rotação Z, Tamanho X, Tamanho Y)
-    # Nota: CAM_HEIGHT é o centro Z da câmera.
+    bar_len = 0.12; bar_wid = 0.04; offset = 0.07   
     lights_config = [
-        ("Luz_Ring_Top", 0, CAM_HEIGHT + offset, 0, bar_len, bar_wid),
-        ("Luz_Ring_Bottom", 0, CAM_HEIGHT - offset, 0, bar_len, bar_wid),
-        ("Luz_Ring_Left", -offset, CAM_HEIGHT, 0, bar_wid, bar_len),
-        ("Luz_Ring_Right", offset, CAM_HEIGHT, 0, bar_wid, bar_len)
+        ("Luz_Top", 0, CAM_HEIGHT + offset, 0, bar_len, bar_wid),
+        ("Luz_Bottom", 0, CAM_HEIGHT - offset, 0, bar_len, bar_wid),
+        ("Luz_Left", -offset, CAM_HEIGHT, 0, bar_wid, bar_len),
+        ("Luz_Right", offset, CAM_HEIGHT, 0, bar_wid, bar_len)
     ]
-
     for name, pos_x, pos_z, rot_z, size_x, size_y in lights_config:
         light_data = bpy.data.lights.new(name=f"{name}_Data", type='AREA')
         light_data.energy = energy_per_bar
         light_data.shape = 'RECTANGLE'
-        light_data.size = size_x
-        light_data.size_y = size_y
+        light_data.size = size_x; light_data.size_y = size_y
+        
+        # SPREAD 160: O segredo para os reflexos nas bordas
+        light_data.spread = 160 
         
         light_obj = bpy.data.objects.new(name=name, object_data=light_data)
         bpy.context.collection.objects.link(light_obj)
-        
-        # Posiciona
         light_obj.location = (pos_x, light_y_pos, pos_z)
-        
-        # Aponta para frente (Y+)
-        # Area lights apontam para -Z nativamente. Rotação X 90 as faz apontar para +Y.
         light_obj.rotation_euler = (math.radians(90), 0, rot_z)
 
 def setup_camera_final():
-    """Posiciona a câmera ortogonalmente para a captura."""
     scene = bpy.context.scene
-    if "Camera_QC" in bpy.data.objects:
-        cam_obj = bpy.data.objects["Camera_QC"]
+    if "Camera_QC" in bpy.data.objects: cam_obj = bpy.data.objects["Camera_QC"]
     else:
         cam_data = bpy.data.cameras.new(name='Camera_QC')
         cam_obj = bpy.data.objects.new(name='Camera_QC', object_data=cam_data)
         bpy.context.collection.objects.link(cam_obj)
-
     cam_obj.data.lens = FOCAL_LENGTH
     cam_obj.data.sensor_width = SENSOR_WIDTH
     cam_obj.location = (0, -CAM_DISTANCE, CAM_HEIGHT)
     cam_obj.rotation_euler = (math.radians(90), 0, 0)
     scene.camera = cam_obj
 
-def rotate_and_render_batch(target_obj):
-    """Executa o loop de renderização e rotação."""
-
+def run_full_batch(target_obj):
+    # Cria a pasta se não existir
     if not os.path.exists(OUTPUT_DIR):
-        print(f"ERRO CRÍTICO: A pasta '{OUTPUT_DIR}' não existe.")
-        print("Crie a pasta ou ajuste a variável OUTPUT_DIR no script.")
-        return 
+        try:
+            os.makedirs(OUTPUT_DIR)
+            print(f"Pasta criada: {OUTPUT_DIR}")
+        except OSError:
+            print(f"ERRO CRÍTICO: Não foi possível criar a pasta {OUTPUT_DIR}")
+            return
 
-    print(f"--- INICIANDO CAPTURA DE {TOTAL_PHOTOS} IMAGENS ---")
-    print("O Blender pode congelar durante o processo. Isso é normal.")
+    print(f"--- INICIANDO GERAÇÃO FINAL ({TOTAL_PHOTOS} FOTOS) ---")
+    print(f"Setup: V25 Gold Master | Samples: 512")
     
-    # Salva rotação original
     original_rot_z = target_obj.rotation_euler[2]
-    target_obj.rotation_euler[2] = 0
+    target_obj.rotation_euler[2] = 0 
 
     for i in range(TOTAL_PHOTOS):
         filename = f"{FILE_PREFIX}{i:02d}.png"
         bpy.context.scene.render.filepath = os.path.join(OUTPUT_DIR, filename)
-
+        
+        # Renderiza a foto
         bpy.ops.render.render(write_still=True)
-        print(f"Salvo: {filename} ({i+1}/{TOTAL_PHOTOS})")
-
+        print(f"-> Salvo: {filename} ({i+1}/{TOTAL_PHOTOS})")
+        
+        # Rotaciona para a próxima
         target_obj.rotation_euler[2] += math.radians(ROTATION_STEP)
     
-    # Restaura o ponto inciial
     target_obj.rotation_euler[2] = original_rot_z
-    print("--- CONCLUÍDO COM SUCESSO ---")
-
+    print("--- PROCESSO CONCLUÍDO! Verifique a pasta. ---")
 
 if __name__ == "__main__":
     obj_selecionado = bpy.context.active_object
-    
     if obj_selecionado and obj_selecionado.type == 'MESH':
-        print(f"Objeto selecionado: {obj_selecionado.name}")
-        setup_scene_defaults()
-        setup_lighting_ring_square() # Nova iluminação Ring Light
+        setup_scene_final()
+        setup_material_v25_steel(obj_selecionado)
+        create_blister_final()
+        setup_lighting_final_v25()
         setup_camera_final()
         
-        # Inicia a geração
-        rotate_and_render_batch(obj_selecionado)
+        # DISPARAR O LOTE FINAL
+        run_full_batch(obj_selecionado)
     else:
-        print("ERRO: Selecione o objeto 3D da broca na tela antes de rodar o script.")
+        print("ERRO: Selecione a broca na tela antes de rodar.")
